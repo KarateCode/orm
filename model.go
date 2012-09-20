@@ -1,9 +1,10 @@
 package orm
 
 import (
-	// "fmt"
+	"fmt"
 	"strings"
 	"database/sql"
+	"reflect"
 	_ "github.com/ziutek/mymysql/godrv"
 )
 
@@ -15,20 +16,37 @@ type Model struct {
 	NewInstance    func() Fieldable
 }
 
-func NewModel(tName string, connectionString string, assign func() Fieldable, fields ...string) *Model {
+var connectionString string
+
+func SetConnectionString(auth string) {
+	connectionString = auth
+}
+
+func NewModel(tName string, assign func() Fieldable) *Model {
+	var fields []string
 	db, dbErr := sql.Open("mymysql", connectionString)
 	if dbErr != nil { panic(dbErr) }
 	
+	structValue := reflect.ValueOf(assign()).Elem()
+	modelStructType := structValue.Type()
+	// println(modelStructType.Kind().String())
+	
+	// var results []interface{}
+	// return append(results, &self.Id, &self.ForDate, &self.ClientImps, &self.ClientClicks, &self.ClientConvs, &self.ClientRevenue)
+	
+	var i int
+	for i=0; i<modelStructType.NumField(); i+=1 {
+		// println(fmt.Sprintf("%v", modelStructType.Field(i).Tag))
+		fields = append(fields, fmt.Sprintf("%v", modelStructType.Field(i).Tag))
+	}
 	m := Model{tableName:tName, Conn:db, NewInstance:assign, memoizedFields:fields}
+	// fmt.Printf("\nfields%+v\n", fields)
 	return &m
 }
 
 type Fieldable interface {
 	Fields() []interface{}
 	SetPk(int64)
-}
-type FieldAtable interface {
-	FieldsAt(int) []interface{}
 }
 
 func infoLog(message string) {
@@ -126,6 +144,7 @@ func (self *Model) Save(object Fieldable) error {
 	}
 	defer stmt.Close()
 	
+	// fmt.Printf("\nobject.Fields()%v\n", object.Fields())
 	result, errs := stmt.Exec(object.Fields()...)
 	if errs != nil {
 		return errs
@@ -154,6 +173,18 @@ func (self *Model) FindOrCreate(conditions H, obj Fieldable)  {
 	self.Create(conditions)
 }
 
+func (self *Model) All() (*Query) {
+	query := new(Query)
+	query.model = self
+	// query.Params = params
+	
+	query.SelectClause = "SELECT " + strings.Join(self.memoizedFields, ", ")
+	query.FromClause = " FROM " + self.tableName + " "
+	// query.WhereClause = " WHERE " + where
+	
+	return query
+}
+
 func (self *Model) Where(where string, params ...interface{}) (*Query) {
 	query := new(Query)
 	query.model = self
@@ -172,6 +203,7 @@ func (query *Query) Find(object Fieldable) error {
 	
 	stmt, err := query.model.Conn.Prepare(sql)
 	if err != nil {return err}
+	defer stmt.Close()
 	
 	row := stmt.QueryRow(query.Params...)
 	
@@ -187,6 +219,7 @@ func (query *Query) FindAll() ([]Fieldable, error) {
 	
 	stmt, err := query.model.Conn.Prepare(sqlText)
 	if err != nil {return nil, err}
+	defer stmt.Close()
 	
 	rows, errs := stmt.Query(query.Params...)
 	if errs != nil { return nil, errs }
