@@ -14,6 +14,8 @@ type Model struct {
 	structure      interface{}
 	Conn           *sql.DB
 	NewInstance    func() Fieldable
+	IncludesUpdatedAt bool
+	IncludesCreatedAt bool
 }
 
 var connectionString string
@@ -22,24 +24,29 @@ func SetConnectionString(auth string) {
 	connectionString = auth
 }
 
-func NewModel(tName string, assign func() Fieldable) *Model {
-	var fields []string
+var fields func(interface{}) []interface{}
+
+func NewModel(assign func() Fieldable) *Model {
+	var f []string
 	db, dbErr := sql.Open("mymysql", connectionString)
 	if dbErr != nil { panic(dbErr) }
 	
 	structValue := reflect.ValueOf(assign()).Elem()
 	modelStructType := structValue.Type()
 	// println(modelStructType.Kind().String())
-	
 	// var results []interface{}
-	// return append(results, &self.Id, &self.ForDate, &self.ClientImps, &self.ClientClicks, &self.ClientConvs, &self.ClientRevenue)
 	
 	var i int
 	for i=0; i<modelStructType.NumField(); i+=1 {
 		// println(fmt.Sprintf("%v", modelStructType.Field(i).Tag))
-		fields = append(fields, fmt.Sprintf("%v", modelStructType.Field(i).Tag))
+		if modelStructType.Field(i).Name != "TableName" {
+			f = append(f, fmt.Sprintf("%v", modelStructType.Field(i).Tag))
+		}
+		// results = append(results, &self.Id, &self.ForDate, &self.ClientImps, &self.ClientClicks, &self.ClientConvs, &self.ClientRevenue)
+		// results = append(results, modelStructType.Field(i).Addr())
 	}
-	m := Model{tableName:tName, Conn:db, NewInstance:assign, memoizedFields:fields}
+	tableName, _ := modelStructType.FieldByName("TableName")
+	m := Model{tableName:fmt.Sprintf("%v", tableName.Tag), Conn:db, NewInstance:assign, memoizedFields:f, IncludesUpdatedAt:true, IncludesCreatedAt:true}
 	// fmt.Printf("\nfields%+v\n", fields)
 	return &m
 }
@@ -133,8 +140,21 @@ type Query struct {
 	SelectClause string
 	FromClause string
 	WhereClause string
+	LimitClause string
 	model *Model
 	Params []interface{}
+}
+
+func (self *Model) First(object Fieldable) error {
+	query := new(Query)
+	query.model = self
+	
+	query.SelectClause = "SELECT " + strings.Join(self.memoizedFields, ", ")
+	query.FromClause = " FROM " + self.tableName + " "
+	query.LimitClause = `LIMIT 1`
+	
+	err := query.Find(object)
+	return err
 }
 
 func (self *Model) Save(object Fieldable) error {
@@ -144,7 +164,6 @@ func (self *Model) Save(object Fieldable) error {
 	}
 	defer stmt.Close()
 	
-	// fmt.Printf("\nobject.Fields()%v\n", object.Fields())
 	result, errs := stmt.Exec(object.Fields()...)
 	if errs != nil {
 		return errs
@@ -198,7 +217,7 @@ func (self *Model) Where(where string, params ...interface{}) (*Query) {
 }
 
 func (query *Query) Find(object Fieldable) error {
-	sql := query.SelectClause + query.FromClause + query.WhereClause + ";"
+	sql := query.SelectClause + query.FromClause + query.WhereClause + query.LimitClause + ";"
 	infoLog(sql)
 	
 	stmt, err := query.model.Conn.Prepare(sql)
@@ -214,7 +233,7 @@ func (query *Query) Find(object Fieldable) error {
 }
 
 func (query *Query) FindAll() ([]Fieldable, error) {
-	sqlText := query.SelectClause + query.FromClause + query.WhereClause + ";"
+	sqlText := query.SelectClause + query.FromClause + query.WhereClause + query.LimitClause + ";"
 	infoLog(sqlText)
 	
 	stmt, err := query.model.Conn.Prepare(sqlText)

@@ -17,6 +17,7 @@ func checkError(err error) {
 
 var ManualStats *Model
 type ManualStat struct {
+	TableName string `manual_stats`
 	Id int64 `id`
 	ForDate time.Time `for_date`
 	ClientImps float64 `client_imps`
@@ -35,8 +36,7 @@ func (self *ManualStat) SetPk(pk int64) {
 
 func TestNewModelNoFields(*testing.T) {
 	SetConnectionString("central_test/root/")
-	ManualStats = NewModel("manual_stats", 
-		func() Fieldable {return new(ManualStat)})
+	ManualStats = NewModel(func() Fieldable {return new(ManualStat)})
 		
 	ManualStats.Truncate()
 	startDate, err := time.Parse(dateLayout, "2012-09-01")
@@ -50,4 +50,7 @@ func TestNewModelNoFields(*testing.T) {
 	checkError(err)
 	// fmt.Printf("\nmstat%+v\n", mstat)
 	ShouldEqual(1, ManualStats.Count())
+	stat := ManualStat{}
+	ManualStats.Where("id=?", 1).Find(&stat)
+	ShouldEqual(3.0, stat.ClientRevenue)
 }
