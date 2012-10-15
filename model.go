@@ -2,6 +2,7 @@ package orm
 
 import (
 	"fmt"
+	"errors"
 	"strings"
 	"database/sql"
 	"reflect"
@@ -13,7 +14,6 @@ type Model struct {
 	memoizedFields []string
 	structure      interface{}
 	Conn           *sql.DB
-	NewInstance    func() Fieldable
 	IncludesUpdatedAt bool
 	IncludesCreatedAt bool
 }
@@ -24,30 +24,22 @@ func SetConnectionString(auth string) {
 	connectionString = auth
 }
 
-var fields func(interface{}) []interface{}
-
-func NewModel(assign func() Fieldable) *Model {
+func NewModel(assign interface{}) *Model {
 	var f []string
 	db, dbErr := sql.Open("mymysql", connectionString)
 	if dbErr != nil { panic(dbErr) }
 	
-	structValue := reflect.ValueOf(assign()).Elem()
+	structValue := reflect.ValueOf(assign)
 	modelStructType := structValue.Type()
-	// println(modelStructType.Kind().String())
-	// var results []interface{}
 	
 	var i int
 	for i=0; i<modelStructType.NumField(); i+=1 {
-		// println(fmt.Sprintf("%v", modelStructType.Field(i).Tag))
 		if modelStructType.Field(i).Name != "TableName" {
 			f = append(f, fmt.Sprintf("%v", modelStructType.Field(i).Tag))
 		}
-		// results = append(results, &self.Id, &self.ForDate, &self.ClientImps, &self.ClientClicks, &self.ClientConvs, &self.ClientRevenue)
-		// results = append(results, modelStructType.Field(i).Addr())
 	}
 	tableName, _ := modelStructType.FieldByName("TableName")
-	m := Model{tableName:fmt.Sprintf("%v", tableName.Tag), Conn:db, NewInstance:assign, memoizedFields:f, IncludesUpdatedAt:true, IncludesCreatedAt:true}
-	// fmt.Printf("\nfields%+v\n", fields)
+	m := Model{tableName:fmt.Sprintf("%v", tableName.Tag), Conn:db, memoizedFields:f, IncludesUpdatedAt:true, IncludesCreatedAt:true}
 	return &m
 }
 
@@ -139,6 +131,7 @@ func (self *Model) CountWhere(params H) int {
 type Query struct {
 	SelectClause string
 	FromClause string
+	JoinClause string
 	WhereClause string
 	LimitClause string
 	model *Model
@@ -216,8 +209,13 @@ func (self *Model) Where(where string, params ...interface{}) (*Query) {
 	return query
 }
 
+func (query *Query) Join(join string) (*Query) {
+	query.JoinClause = " JOIN " + join
+	return query
+}
+
 func (query *Query) Find(object Fieldable) error {
-	sql := query.SelectClause + query.FromClause + query.WhereClause + query.LimitClause + ";"
+	sql := query.SelectClause + query.FromClause + query.JoinClause + query.WhereClause + query.LimitClause + ";"
 	infoLog(sql)
 	
 	stmt, err := query.model.Conn.Prepare(sql)
@@ -232,24 +230,33 @@ func (query *Query) Find(object Fieldable) error {
 	return nil
 }
 
-func (query *Query) FindAll() ([]Fieldable, error) {
-	sqlText := query.SelectClause + query.FromClause + query.WhereClause + query.LimitClause + ";"
+func (query *Query) FindAll(fieldables interface{}) error {
+	sqlText := query.SelectClause + query.FromClause + query.JoinClause + query.WhereClause + query.LimitClause + ";"
 	infoLog(sqlText)
 	
 	stmt, err := query.model.Conn.Prepare(sqlText)
-	if err != nil {return nil, err}
+	if err != nil {return err}
 	defer stmt.Close()
 	
 	rows, errs := stmt.Query(query.Params...)
-	if errs != nil { return nil, errs }
-	var fieldables []Fieldable
+	if errs != nil { return errs }
 	
-	i := 0
-	for rows.Next() {
-		ph := query.model.NewInstance()
-		fieldables = append(fieldables, ph)
-		rows.Scan(fieldables[i].Fields()...)
-		i++
+	sliceValue := reflect.Indirect(reflect.ValueOf(fieldables))
+	if sliceValue.Kind() != reflect.Slice {
+		return errors.New("needs a pointer to a slice")
 	}
-	return fieldables, nil
+	sliceElementType := sliceValue.Type().Elem()
+	    
+	for rows.Next() {
+		newValue := reflect.New(sliceElementType)
+		fields := newValue.MethodByName("Fields").Call(nil)
+		
+		var Values []interface{}
+		refValue := reflect.Indirect(reflect.ValueOf(&Values))
+		refValue.Set(reflect.AppendSlice(refValue, fields[0]))
+		rows.Scan(Values...)
+		
+		sliceValue.Set(reflect.Append(sliceValue, reflect.Indirect(reflect.ValueOf(newValue.Interface()))))
+	}
+	return nil
 }

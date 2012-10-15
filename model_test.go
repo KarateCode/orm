@@ -33,10 +33,15 @@ func (self *ManualStat) Fields() []interface{} {
 func (self *ManualStat) SetPk(pk int64) {
 	self.Id = pk
 }
+// func (self *[]ManualStat) FieldsAt(index int) []interface{} {
+	// var results []interface{}
+	// return append(results, &self.Id, &self.ForDate, &self.ClientImps, &self.ClientClicks, &self.ClientConvs, &self.ClientRevenue)
+	// return 
+// }
 
 func TestNewModelNoFields(*testing.T) {
 	SetConnectionString("central_test/root/")
-	ManualStats = NewModel(func() Fieldable {return new(ManualStat)})
+	ManualStats = NewModel(ManualStat{})
 		
 	ManualStats.Truncate()
 	startDate, err := time.Parse(dateLayout, "2012-09-01")
@@ -53,4 +58,34 @@ func TestNewModelNoFields(*testing.T) {
 	stat := ManualStat{}
 	ManualStats.Where("id=?", 1).Find(&stat)
 	ShouldEqual(3.0, stat.ClientRevenue)
+}
+
+func TestFindAll(*testing.T) {
+	SetConnectionString("central_test/root/")
+	ManualStats = NewModel(ManualStat{})
+		
+	ManualStats.Truncate()
+	startDate, err := time.Parse(dateLayout, "2012-09-01")
+	checkError(err)
+	
+	mstat := ManualStat{
+		ForDate: startDate,
+		ClientRevenue: 3.00,
+	}
+	err = ManualStats.Save(&mstat)
+	checkError(err)
+	mstat2 := ManualStat{
+		ForDate: startDate,
+		ClientRevenue: 3.00,
+	}
+	err = ManualStats.Save(&mstat2)
+	checkError(err)
+	ShouldEqual(2, ManualStats.Count())
+	
+	var stats []ManualStat
+	ManualStats.All().FindAll(&stats)
+	ShouldEqual(2, len(stats))
+	ShouldEqual(3.0, stats[0].ClientRevenue)
+	// fmt.Printf("\nstats%+v\n", stats)
+	// ManualStats.All().FindAll()
 }
