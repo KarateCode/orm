@@ -138,7 +138,7 @@ func TestDoNotSetIdToZero(*testing.T) {
 	}
 	var id int64 = 1
 
-	checkError(Advertisers.Save(&a))
+	checkError(Advertisers.Insert(&a))
 	ShouldEqual(id, a.Id)
 	// fmt.Printf("a: %+v\n", a)
 
@@ -148,7 +148,7 @@ func TestDoNotSetIdToZero(*testing.T) {
 		Type:   "ApxAdvertiser",
 		Active: true,
 	}
-	checkError(Advertisers.Save(&a))
+	checkError(Advertisers.Insert(&a))
 	checkError(Advertisers.First(&a))
 	ShouldEqual(id, a.Id)
 	// fmt.Printf("a: %+v\n", a)

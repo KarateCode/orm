@@ -163,6 +163,25 @@ func (self *Model) First(object Fieldable) error {
 }
 
 func (self *Model) Save(object Fieldable) error {
+	stmt, err := self.PrepareInsert(self.memoizedFields)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	result, errs := stmt.Exec(object.Fields()...)
+	if errs != nil {
+		return errs
+	}
+	pk, pkErr := result.LastInsertId()
+	if pkErr != nil {
+		return pkErr
+	}
+	object.SetPk(pk)
+	return nil
+}
+
+func (self *Model) Insert(object Fieldable) error {
 	stmt, err := self.PrepareInsert(self.noPkFields)
 	if err != nil {
 		return err
