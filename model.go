@@ -12,6 +12,7 @@ import (
 type Model struct {
 	tableName         string
 	memoizedFields    []string
+	noPkFields        []string
 	structure         interface{}
 	Conn              *sql.DB
 	IncludesUpdatedAt bool
@@ -26,6 +27,7 @@ func SetConnectionString(auth string) {
 
 func NewModel(assign interface{}) *Model {
 	var f []string
+	var noPk []string
 	db, dbErr := sql.Open("mymysql", connectionString)
 	if dbErr != nil {
 		panic(dbErr)
@@ -38,16 +40,23 @@ func NewModel(assign interface{}) *Model {
 	var i int
 	for i = 0; i < modelStructType.NumField(); i += 1 {
 		if modelStructType.Field(i).Name != "TableName" {
-			f = append(f, fmt.Sprintf("%v.%v", tableName.Tag, modelStructType.Field(i).Tag))
+			names := strings.Split(fmt.Sprintf("%v.%v", tableName.Tag, modelStructType.Field(i).Tag), ":")
+			if len(names) > 1 && (names[1] == "pk" || names[1] == "PK" || names[1] == "Pk") {
+				f = append(f, names[0])
+			} else {
+				noPk = append(noPk, names[0])
+				f = append(f, fmt.Sprintf("%v.%v", tableName.Tag, modelStructType.Field(i).Tag))
+			}
 		}
 	}
 
-	m := Model{tableName: fmt.Sprintf("%v", tableName.Tag), Conn: db, memoizedFields: f, IncludesUpdatedAt: true, IncludesCreatedAt: true}
+	m := Model{tableName: fmt.Sprintf("%v", tableName.Tag), Conn: db, memoizedFields: f, noPkFields: noPk, IncludesUpdatedAt: true, IncludesCreatedAt: true}
 	return &m
 }
 
 type Fieldable interface {
 	Fields() []interface{}
+	FieldsNoPk() []interface{}
 	SetPk(int64)
 }
 
@@ -154,13 +163,13 @@ func (self *Model) First(object Fieldable) error {
 }
 
 func (self *Model) Save(object Fieldable) error {
-	stmt, err := self.PrepareInsert(self.memoizedFields)
+	stmt, err := self.PrepareInsert(self.noPkFields)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
-	result, errs := stmt.Exec(object.Fields()...)
+	result, errs := stmt.Exec(object.FieldsNoPk()...)
 	if errs != nil {
 		return errs
 	}
